@@ -92,12 +92,10 @@ export class Todos extends React.PureComponent<TodosProps, TodosState> {
   async componentDidMount() {
     try {
       const todos = await getTodos(this.props.auth.getIdToken())
-      console.log("Todos found: ", todos);
       this.setState({
         todos,
         loadingTodos: false
       })
-      console.log("State: ", this.state);
     } catch (e) {
       alert(`Failed to fetch todos: ${e}`)
     }
@@ -144,7 +142,6 @@ export class Todos extends React.PureComponent<TodosProps, TodosState> {
     if (this.state.loadingTodos) {
       return this.renderLoading()
     }
-    console.log(this.state);
     return this.renderTodosList()
   }
 
