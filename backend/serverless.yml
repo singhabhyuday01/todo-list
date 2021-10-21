@@ -1,7 +1,4 @@
-# TODO: Change the name of the org 
-# org: abhyuday
-# app: serverless-todo-app
-service: serverless-todo-app
+service: serverless-project-todo-app
 
 plugins:
   - serverless-webpack
@@ -23,10 +20,16 @@ provider:
   # Use these variables in the functions and resouorces section below. For example, 
   # ${self:provider.environment.ATTACHMENT_S3_BUCKET}
   environment:
+    AWS_REGION_VALUE: ${self:provider.region}
     TODOS_TABLE: Todos-${self:provider.stage}
     TODOS_CREATED_AT_INDEX: CreatedAtIndex
-    ATTACHMENT_S3_BUCKET: serverless-c4-todo-images-${self:provider.stage}-abh
+    TODOS_DUE_DATE_INDEX: DueDateIndex
+    ATTACHMENT_S3_BUCKET: serverless-project-todo-images-${self:provider.stage}-abh
     SIGNED_URL_EXPIRATION: 300
+    SNS_REMINDER_TOPIC_NAME: todo-due-reminder-${self:provider.stage}
+    SNS_CREATED_TODO_TOPIC_NAME: todo-created-${self:provider.stage}
+    SNS_CREATED_TODO_TOPIC_ARN: !Ref CreatedTodoTopic
+    TODOS_REMINDER_TABLE: Todos-Reminder-${self:provider.stage}
 
   logs:
     # Enable API Gateway logs
@@ -46,14 +49,11 @@ provider:
             - s3:GetObject
           Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*
 
-
 functions:
 
   Auth:
     handler: src/lambda/auth/auth0Authorizer.handler
 
-  # TODO: Configure this function - 
-  # Provide iamRoleStatements property for performing Actions on DynamoDB
   GetTodos:
     handler: src/lambda/http/getTodos.handler
     events:
@@ -71,7 +71,6 @@ functions:
           - dynamodb:GetItem
         Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
-  # TODO: Configure this function - 
   # Provide iamRoleStatements property. Decide the Actions and AWS Resource. 
   # To refer to an AWS resource defined in the "Resources" section, you can use "Resource: !GetAtt <resource-name>.Arn"
   # To validate incoming HTTP requests, we have provided the request schemas in function definition below. 
@@ -95,9 +94,11 @@ functions:
           - dynamodb:PutItem
           - dynamodb:GetItem
         Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+      - Effect: Allow
+        Action:
+          - sns:Publish
+        Resource: arn:aws:sns:${self:provider.region}:*:${self:provider.environment.SNS_CREATED_TODO_TOPIC_NAME}
 
-  # TODO: Configure this function
-  # Provide property for setting up CORS, Authorizer, iamRoleStatements, and request schemas
   UpdateTodo:
     handler: src/lambda/http/updateTodo.handler
     events:
@@ -119,8 +120,6 @@ functions:
           - dynamodb:GetItem
         Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
-  # TODO: Configure this function
-  # Provide property for setting up CORS, Authorizer, iamRoleStatements
   DeleteTodo:
     handler: src/lambda/http/deleteTodo.handler
     events:
@@ -168,6 +167,60 @@ functions:
           - s3:PutItem
         Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*
 
+  RemindUser:
+    handler: src/lambda/http/remindUser.handler
+    events:
+      - schedule: cron(0 0 0 ? * * *)
+      - http:
+          method: post
+          path: remindUsers
+          cors: true
+          authorizer: Auth
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:Scan
+          - dynamodb:Query
+          - dynamodb:DeleteItem
+          - dynamodb:GetItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_REMINDER_TABLE}
+      - Effect: Allow
+        Action:
+          - dynamodb:Scan
+          - dynamodb:Query
+          - dynamodb:DeleteItem
+          - dynamodb:GetItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+      - Effect: Allow
+        Action:
+          - sns:Publish
+        Resource: arn:aws:sns:${self:provider.region}:*:*
+    
+  CreatedTodo:
+    handler: src/lambda/http/createdTodo.handler
+    events:
+      - sns:
+          arn: !Ref CreatedTodoTopic
+          topicName: ${self:provider.environment.SNS_CREATED_TODO_TOPIC_NAME}
+    iamRoleStatementsInherit: true
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - sns:CreateTopic
+          - sns:ListTopics
+          - sns:GetTopicAttributes
+          - sns:SetSubscriptionAttributes
+          - sns:SetTopicAttributes
+          - sns:Subscribe
+        Resource: arn:aws:sns:${self:provider.region}:*:*
+      - Effect: Allow
+        Action:
+          - dynamodb:Query
+          - dynamodb:GetItem
+          - dynamodb:PutItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_REMINDER_TABLE}
+
 resources:
   Resources:
     # Add necessary AWS resources. You will need at least the following AWS resources
@@ -183,7 +236,23 @@ resources:
         ResponseType: DEFAULT_4XX
         RestApiId:
           Ref: ApiGatewayRestApi
-    
+
+    TodosReminderTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: dueDate
+            AttributeType: S
+          - AttributeName: todoId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: dueDate
+            KeyType: HASH
+          - AttributeName: todoId
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:provider.environment.TODOS_REMINDER_TABLE}
+
     # TODO: Create a DynamoDB table with local secondary index and a composite key
     TodosTable:
       Type: AWS::DynamoDB::Table
@@ -253,3 +322,14 @@ resources:
               Action: 's3:DeleteObject'
               Resource: 'arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*'
         Bucket: !Ref AttachmentsBucket
+    
+    ReminderTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:provider.environment.SNS_REMINDER_TOPIC_NAME}
+    
+    CreatedTodoTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:provider.environment.SNS_CREATED_TODO_TOPIC_NAME}
+        DisplayName: "Created Todo Topic"

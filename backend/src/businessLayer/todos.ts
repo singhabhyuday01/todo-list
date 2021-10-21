@@ -26,7 +26,8 @@ export async function getTodosForUserIdTodoId(userId: string, todoId: string): P
 
 export async function createTodo(
     createTodoRequest: CreateTodoRequest,
-    userId: string
+    userId: string,
+    emailId: string
 ): Promise<TodoItem> {
     const todoId = uuid.v4()
     logger.info("Creating todo for userId: "+userId+" and todoId: "+todoId);
@@ -34,6 +35,7 @@ export async function createTodo(
         todoId: todoId,
         userId: userId,
         name: createTodoRequest.name,
+        email: emailId,
         dueDate: createTodoRequest.dueDate,
         createdAt: new Date().toISOString(),
         done: false
