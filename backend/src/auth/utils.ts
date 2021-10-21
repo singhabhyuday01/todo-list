@@ -12,3 +12,9 @@ export function parseUserId(jwtToken: string): string {
   console.log("Decoded JWT: "+jwtToken, decodedJwt);
   return decodedJwt.sub
 }
+
+export function parseEmailId(jwtToken: string): string {
+  const decodedJwt = decode(jwtToken) as JwtPayload
+  console.log("Decoded JWT: "+jwtToken, decodedJwt);
+  return decodedJwt.email
+}
