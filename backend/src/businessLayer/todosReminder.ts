@@ -54,7 +54,6 @@ export async function createTodosReminder(todosReminder: TodosReminderItem) {
 
 function getTodaysDate(): string {
     const date = new Date()
-    date.setDate(date.getDate() + 7)
     return dateFormat(date, 'yyyy-mm-dd') as string
 }
 
